@@ -117,6 +117,37 @@ class UnivariateEDA:
         fig.update_layout(template='plotly_white')
 
         return fig
+    
+    def plot_rolling_statistics(self, window: int = 24) -> go.Figure:
+        rolling_mean = self.ts.rolling(window=window).mean()
+        rolling_std = self.ts.rolling(window=window).std()
+
+        fig = go.Figure()
+        
+        # Primary Y-Axis (y1)
+        fig.add_trace(go.Scatter(x=self.ts.index, y=self.ts, mode='lines', yaxis='y1', opacity=0.7, line=dict(color='lightblue'), name=self.ts.name))
+        fig.add_trace(go.Scatter(x=rolling_mean.index, y=rolling_mean, yaxis='y1', mode='lines', line=dict(color='blue', width=1), name='Rolling Mean'))
+        
+        # Secondary Y-Axis (y2)
+        fig.add_trace(go.Scatter(x=rolling_std.index, y=rolling_std, mode='lines', line={'color': 'black', 'width': 0.5},yaxis='y2', opacity=0.5, name='Rolling Std Dev'))
+
+        fig.update_layout(
+            title=f'{self.ts.name} with Rolling Statistics',
+            xaxis_title='Time',
+            yaxis=dict(
+                title=self.ts.name,
+            ),
+            yaxis2=dict(
+                title="Rolling Std Dev",
+                anchor="x",
+                overlaying="y", # This is crucial: it overlays the first y-axis
+                side="right"    # Put it on the right side
+            ),
+            template='plotly_white',
+            legend=dict(x=1.1, y=1) # Move legend so it doesn't block the secondary axis
+        )
+
+        return fig
 
     def plot_distribution_histogram(self, differenced: bool = False, orientation: str = 'v') -> go.Figure:
         """
@@ -167,11 +198,13 @@ class UnivariateEDA:
             'p_value': adf_result[1],
             'used_lag': adf_result[2],
             'n_obs': adf_result[3],
-            'critical_values': adf_result[4],
             'ic_best': adf_result[5]
         }
 
-        if adf_dict['p_value'] < adf_dict['critical_values']['5%']:
+        for key, value in adf_result[4].items():
+            adf_dict[f'critical_value_{key}'] = value
+
+        if adf_dict['p_value'] < adf_dict['critical_value_5%']:
             adf_dict['stationarity'] = True
             return adf_dict
         else:

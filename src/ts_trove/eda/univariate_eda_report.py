@@ -41,11 +41,12 @@ class UnivaritateEDAReport:
                                 'Distribution Histogram',
                                 'Differenced Time Series',
                                 '',
-                                'Differenced Distribution Histogram'
+                                'Differenced Histogram'
                             ],
                             shared_yaxes=True,
                             shared_xaxes=True,
                             horizontal_spacing=0.01,
+                            vertical_spacing=0.1,
                             column_widths=[0.6, 0.1, 0.3])
         
         # -- time series (1,1) --
@@ -78,7 +79,23 @@ class UnivaritateEDAReport:
         differenced_distribution_histogram.data[0].update(marker=dict(color='lightblue'))
         subplot_grid.add_trace(differenced_distribution_histogram.data[0], row=2, col=3)
         
+        # hide legend
+        subplot_grid.update_layout(showlegend=False, margin=dict(t=50, b=20, l=20, r=20))
+
         return subplot_grid
+    
+    def _windowed_statistics_panel(self) -> None:
+        """
+        Plot rolling mean and rolling standard deviation.
+
+        Returns:
+        plotly.graph_objs._figure.Figure: A Plotly figure object displaying the rolling statistics.
+        """
+
+        rolling_stats_plot = self.univariate_eda.plot_rolling_statistics()
+        rolling_stats_plot.update_layout(margin=dict(t=50, b=20, l=20, r=20))
+
+        return rolling_stats_plot
     
     def _self_correlation_panel(self) -> None:
         """
@@ -92,10 +109,10 @@ class UnivaritateEDAReport:
                             specs=[[{"type": "scatter"}, {"type": "scatter"}],
                                    [{"type": "scatter"}, {"type": "scatter"}]],
                             subplot_titles=[
-                                'Autocorrelation Function (ACF)',
-                                'Partial Autocorrelation Function (PACF)'
-                                'Autocorrelation Function (ACF) - Resampled',
-                                'Partial Autocorrelation Function (PACF) - Resampled'
+                                'ACF',
+                                'PACF',
+                                'ACF - Resampled',
+                                'PACF - Resampled'
                             ],
                             horizontal_spacing=0.15,
                             column_widths=[0.5, 0.5])
@@ -132,33 +149,77 @@ class UnivaritateEDAReport:
         pacf_rs_plot.data[0].update(marker=dict(color='darkblue'))
         subplot_grid.add_trace(pacf_rs_plot.data[0], row=2, col=2)
 
+        subplot_grid.update_layout(showlegend=False, margin=dict(t=50, b=20, l=20, r=20))
+
         return subplot_grid
     
+    def _write_html_table(self, d: dict) -> str:
+        rows = "".join([f"<tr><td><strong>{k}</strong></td><td>{v}</td></tr>" for k, v in d.items()])
+        return f"""
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Metric</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+            """
+        
     def generate(self, output_path: Path) -> None:
-        """
-        Generate the univariate EDA report and save it to the specified output path.
-
-        Parameters:
-        output_path (Path): The file path where the report will be saved.
-        """
-
-        # Create output directory if it doesn't exist
         output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Get content
+        tsi_html = self._write_html_table(self.univariate_eda.describe_time_index())
+        stationarity_html = self._write_html_table(self.univariate_eda.describe_stationarity())
+        
+        # Get Plotly HTML but extract only the <div> and <script> parts (full_html=False)
+        ts_dist = self._ts_and_distribution_panel().to_html(full_html=False, include_plotlyjs='cdn')
+        windowed = self._windowed_statistics_panel().to_html(full_html=False, include_plotlyjs=False)
+        self_corr = self._self_correlation_panel().to_html(full_html=False, include_plotlyjs=False)
 
-        # Generate and save time series and distribution panel
-        ts_dist_panel = self._ts_and_distribution_panel()
-        ts_dist_panel.write_html(output_path / "ts_and_distribution_panel.html")
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>Univariate EDA Report</title>
+            <style>
+                body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 40px; }}
+                .container {{ max-width: 1200px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+                h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-top: 40px; }}
+                .table-container {{ margin-bottom: 30px; }}
+                table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
+                th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid #ddd; }}
+                th {{ background-color: #3498db; color: white; }}
+                tr:hover {{ background-color: #f1f1f1; }}
+                .plot-card {{ background: #fff; border: 1px solid #eee; border-radius: 4px; margin-bottom: 20px; padding: 10px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Univariate EDA Report</h1>
+                
+                <h3>Time Index Description</h3>
+                {tsi_html}
 
-        # Generate and save self-correlation panel
-        self_corr_panel = self._self_correlation_panel()
-        self_corr_panel.write_html(output_path / "self_correlation_panel.html")
+                <h1>Time Series & Distribution</h1>
+                <div class="plot-card">{ts_dist}</div>
 
-        # concat the panels into a single report
+                <h3>Stationarity Test Results</h3>
+                {stationarity_html}
 
-        with open(output_path / "univariate_eda_report.html", "w") as report_file:
-            report_file.write("<html><head><title>Univariate EDA Report</title></head><body>\n")
-            report_file.write("<h1>Time Series and Distribution Panel</h1>\n")
-            report_file.write('<iframe src="ts_and_distribution_panel.html" width="100%" height="800"></iframe>\n')
-            report_file.write("<h1>Self-Correlation Panel</h1>\n")
-            report_file.write('<iframe src="self_correlation_panel.html" width="100%" height="400"></iframe>\n')
-            report_file.write("</body></html>\n")
+                <h1>Windowed Statistics</h1>
+                <div class="plot-card">{windowed}</div>
+
+                <h1>Self-Correlation Analysis</h1>
+                <div class="plot-card">{self_corr}</div>
+            </div>
+        </body>
+        </html>
+        """
+
+        with open(output_path / "univariate_eda_report.html", "w") as f:
+            f.write(html_content)
